@@ -103,3 +103,57 @@ app.post("/api/chat", async (req, res) => {
         console.error("Gagal parsing SSE:", error);
       }
     }
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (res.destroyed) {
+        await reader.cancel();
+        return;
+      }
+
+      buffer += decoder.decode(value, {
+        stream: true,
+      });
+
+      const lines = buffer.split("\n");
+
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        processLine(line);
+      }
+    }
+
+    buffer += decoder.decode();
+
+    if (buffer.trim()) {
+      processLine(buffer);
+    }
+
+    if (!res.destroyed && !res.writableEnded) {
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
+  } catch (error) {
+    console.error("Server error:", error);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: error.message,
+      });
+    } else if (!res.destroyed && !res.writableEnded) {
+      res.write(
+        `data: ${JSON.stringify({
+          error: error.message,
+        })}\n\n`,
+      );
+
+      res.end();
+    }
+  }
+});
